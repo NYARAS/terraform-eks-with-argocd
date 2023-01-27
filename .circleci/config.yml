@@ -4,6 +4,22 @@ orbs:
   aws-cli: circleci/aws-cli@2.0
   jq: circleci/jq@2.2.0
 
+executors:
+  app-executor:
+    docker:
+      - image: circleci/node:14.18.1
+    working_directory: ~/repo
+  
+  terraform-executor: 
+    docker:
+      - image: hashicorp/terraform:latest
+
+aliases:
+  - &show-current-branch
+    run:
+      name: Show current branch
+      command: echo ${CIRCLE_BRANCH}
+
 jobs:
   aws-cli-cred-setup:
     executor: aws-cli/default
@@ -14,8 +30,49 @@ jobs:
           aws-region: AWS_REGION_NAME
       - run: >-
           aws sts get-caller-identity | jq
+  setup:
+   executor: app-executor
+   steps:
+      - checkout
+      - *show-current-branch
+      - run:
+          name: Copy Terraform folder for EKS module
+          command: cp -r eks artifacts/terraform/
+      - persist_to_workspace:
+          root: ./
+          paths:
+            - artifacts
+
+  terraform-validate:
+    executor: terraform-executor
+    steps:
+      - aws-cli/setup:
+          aws-access-key-id: AWS_ACCESS_KEY
+          aws-secret-access-key: AWS_ACCESS_SECRET
+          aws-region: AWS_REGION_NAME
+      - run: >-
+          aws sts get-caller-identity | jq
+
+      - checkout
+      - *show-current-branch
+      -  run:
+          name: Code Quality
+          command: |
+             cd terraform/eks
+             terraform init -input=false -backend-config=backend.tfvars
+             terraform validate
+             terraform fmt -check
+
 workflows:
   aws-cli:
     jobs:
       - aws-cli-cred-setup:
           context: aws
+      
+      - terraform-validate:
+          requires:
+            - aws-cli-cred-setup
+          filters:
+            branches:
+              only:
+                - feature/circleci-tf-lint-validate
