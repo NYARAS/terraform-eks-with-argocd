@@ -39,13 +39,13 @@ aliases:
       command: echo ${CIRCLE_BRANCH}
 
 jobs:
-  deploy:
+  testconnection:
     executor: aws-cli/default
     steps:
       - checkout
       - aws-cli/install
       - aws-oidc-setup:
-          aws-role-arn: ${AWS_ROLE_ARN} 
+          aws-role-arn: ${AWS_ROLE_ARN}
       - run:
           name: Test AWS connection
           command: aws s3 ls
@@ -56,8 +56,16 @@ jobs:
       - checkout
       - *show-current-branch
       - run:
+          name: List all the files and folders in this directory
+          command: ls
+      - run:
           name: Copy Terraform folder for EKS module
-          command: cp -r eks artifacts/terraform/
+          command: cp -r eks artifacts/eks/
+      - run:
+          name: Copy Terraform folder for EKS module
+          command: |
+            ls
+            cp -r eks artifacts/eks/
       - persist_to_workspace:
           root: ./
           paths:
@@ -67,11 +75,14 @@ jobs:
     executor: terraform-executor
     steps:
       - checkout
+      - aws-cli/install
+      - aws-oidc-setup:
+          aws-role-arn: ${AWS_ROLE_ARN}
       - *show-current-branch
       -  run:
           name: Code Quality
           command: |
-             cd terraform/eks
+             cd eks/
              terraform init -input=false -backend-config=backend.tfvars
              terraform validate
              terraform fmt -check
@@ -79,13 +90,18 @@ jobs:
 workflows:
   aws-cli:
     jobs:
-      - deploy:
+      - testconnection:
           context: calvine-cloudonmymind
 
-      - terraform-validate:
+      - setup:
           requires:
-            - deploy
-          filters:
-            branches:
-              only:
-                - feature/circleci-tf-lint-validate
+            - testconnection
+
+      - terraform-validate:
+          context: calvine-cloudonmymind
+          requires:
+            - setup
+          # filters:
+          #   branches:
+          #     only:
+          #       - main
