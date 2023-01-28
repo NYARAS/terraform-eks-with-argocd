@@ -83,6 +83,33 @@ jobs:
              terraform validate
              terraform fmt -check
 
+  terraform-plan-and-apply-eks:
+    executor: terraform-executor
+    steps:
+      - checkout
+      - aws-cli/install
+      - aws-oidc-setup:
+          aws-role-arn: ${AWS_ROLE_ARN}
+      - attach_workspace:
+          at: ./
+      - *show-current-branch
+      -  run:
+          name: Terraform Plan [EKS]
+          command: |
+            cd artifacts/eks/
+            terraform init -input=false -backend-config=backend.tfvars
+            terraform plan -var-file=sample.tfvars -input=false
+      # -  run:
+      #     name: Terraform Apply [EKS]
+      #     command: |
+      #       cd artifacts/terraform/
+      #       terraform workspace select ${CIRCLE_BRANCH}
+      #       terraform apply --auto-approve 
+      - persist_to_workspace:
+          root: ./
+          paths:
+            - artifacts
+
 workflows:
   aws-cli:
     jobs:
@@ -97,6 +124,13 @@ workflows:
           context: calvine-cloudonmymind
           requires:
             - setup
+          # filters:
+          #   branches:
+          #     only:
+          #       - main
+      - terraform-plan-and-apply-eks:
+          requires:
+            - terraform-validate
           # filters:
           #   branches:
           #     only:
