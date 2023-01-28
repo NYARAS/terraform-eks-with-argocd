@@ -37,6 +37,12 @@ aliases:
     run:
       name: Show current branch
       command: echo ${CIRCLE_BRANCH}
+  
+  - &install-dependencies
+    run:
+      name: Install Dependencies
+      command: |
+        mkdir -p artifacts
 
 jobs:
   testconnection:
@@ -55,17 +61,10 @@ jobs:
    steps:
       - checkout
       - *show-current-branch
-      - run:
-          name: List all the files and folders in this directory
-          command: ls
+      - *install-dependencies
       - run:
           name: Copy Terraform folder for EKS module
           command: cp -r eks artifacts/eks/
-      - run:
-          name: Copy Terraform folder for EKS module
-          command: |
-            ls
-            cp -r eks artifacts/eks/
       - persist_to_workspace:
           root: ./
           paths:
@@ -75,15 +74,12 @@ jobs:
     executor: terraform-executor
     steps:
       - checkout
-      - aws-cli/install
-      - aws-oidc-setup:
-          aws-role-arn: ${AWS_ROLE_ARN}
       - *show-current-branch
       -  run:
           name: Code Quality
           command: |
              cd eks/
-             terraform init -input=false -backend-config=backend.tfvars
+             terraform init -backend=false
              terraform validate
              terraform fmt -check
 
