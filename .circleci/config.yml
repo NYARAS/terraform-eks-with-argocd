@@ -1,7 +1,6 @@
 version: 2.1
 
 orbs:
-  aws-cli: circleci/aws-cli@3.1.4
   jq: circleci/jq@2.2.0
 
 executors:
@@ -21,58 +20,32 @@ aliases:
       command: echo ${CIRCLE_BRANCH}
 
 jobs:
-  aws-cli-cred-setup:
-    executor: aws-cli/default
+  deploy:
+    docker:
+      - image: amazon/aws-cli
+    environment:
+      AWS_DEFAULT_REGION: eu-west-1
     steps:
-      - aws-cli/setup:
-          aws-access-key-id: AWS_ACCESS_KEY
-          aws-secret-access-key: AWS_ACCESS_SECRET
-          aws-region: AWS_REGION_NAME
-      - run: >-
-          aws sts get-caller-identity | jq
-  setup:
-   executor: app-executor
-   steps:
-      - checkout
-      - *show-current-branch
       - run:
-          name: Copy Terraform folder for EKS module
-          command: cp -r eks artifacts/terraform/
-      - persist_to_workspace:
-          root: ./
-          paths:
-            - artifacts
-
-  terraform-validate:
-    executor: terraform-executor
-    steps:
-      - aws-cli/setup:
-          aws-access-key-id: ${AWS_ACCESS_KEY}
-          aws-secret-access-key: ${AWS_ACCESS_SECRET}
-          aws-region: ${AWS_REGION_NAME}
-      - run: >-
-          aws sts get-caller-identity | jq
-
-      - checkout
-      - *show-current-branch
-      -  run:
-          name: Code Quality
+          name: authenticate-and-interact
           command: |
-             cd terraform/eks
-             terraform init -input=false -backend-config=backend.tfvars
-             terraform validate
-             terraform fmt -check
+            # use the OpenID Connect token to obtain AWS credentials
+            read -r AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \<<< \
+              $(aws sts assume-role-with-web-identity \
+               --role-arn ${AWS_ROLE_ARN} \
+               --role-session-name "CircleCI-${CIRCLE_WORKFLOW_ID}-${CIRCLE_JOB}" \
+               --web-identity-token $CIRCLE_OIDC_TOKEN \
+               --duration-seconds 3600 \
+               --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+               --output text)
+            export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+            # interact with AWS
+            aws --no-cli-pager sts get-caller-identity
+
 
 workflows:
   aws-cli:
     jobs:
-      - aws-cli-cred-setup:
-          context: aws
-      
-      - terraform-validate:
-          requires:
-            - aws-cli-cred-setup
-          filters:
-            branches:
-              only:
-                - feature/circleci-tf-lint-validate
+      - deploy:
+          context: calvine-cloudonmymind
+
