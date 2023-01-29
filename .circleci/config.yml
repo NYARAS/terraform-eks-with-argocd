@@ -61,8 +61,26 @@ jobs:
           paths:
             - artifacts
 
+  setup-aws-cli-path:
+   executor: app-executor
+   steps:
+      - checkout
+      - *show-current-branch
+      - *install-dependencies
+      - run:
+          name: Copy Terraform folder for EKS module
+          command: |
+            sudo apt-get -y -qq update
+            sudo apt-get -y install awscli
+            sudo apt-get install -y python-pip python-dev build-essential
+      - persist_to_workspace:
+          root: ./
+          paths:
+            - artifacts
+
   terraform-validate:
-    executor: terraform-executor
+    docker:
+      - image: cimg/deploy:2023.01
     steps:
       - checkout
       - *show-current-branch
@@ -76,6 +94,7 @@ jobs:
       -  run:
           name: Code Quality [ArgoCD]
           command: |
+             aws s3 ls
              cd argocd/
              terraform init -backend=false
              terraform validate
@@ -221,11 +240,15 @@ workflows:
       - setup:
           requires:
             - testconnection
+      - setup-aws-cli-path:
+          requires:
+            - testconnection
 
       - terraform-validate:
           context: calvine-cloudonmymind
           requires:
             - setup
+            - setup-aws-cli-path
           # filters:
           #   branches:
           #     only:
