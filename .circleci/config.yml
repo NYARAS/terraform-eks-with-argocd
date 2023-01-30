@@ -61,21 +61,46 @@ jobs:
           paths:
             - artifacts
 
+  setup-aws-cli-path:
+   executor: app-executor
+   steps:
+      - checkout
+      - *show-current-branch
+      - *install-dependencies
+      - run:
+          name: Copy Terraform folder for EKS module
+          command: |
+            sudo apt-get -y -qq update
+            sudo apt-get -y install awscli
+            sudo apt-get install -y python-pip python-dev build-essential
+      - persist_to_workspace:
+          root: ./
+          paths:
+            - artifacts
+
   terraform-validate:
-    executor: terraform-executor
+    docker:
+      - image: circleci/node:14.18.1
     steps:
       - checkout
       - *show-current-branch
+      - aws-cli/install
+      - terraform/install:
+          arch: amd64
+          os: linux
+          terraform_version: 1.3.7
       -  run:
           name: Code Quality [EKS]
           command: |
-             cd eks/
-             terraform init -backend=false
-             terraform validate
-             terraform fmt -check
+            aws s3 ls
+            cd eks/
+            terraform init -backend=false
+            terraform validate
+            terraform fmt -check
       -  run:
           name: Code Quality [ArgoCD]
           command: |
+             aws s3 ls
              cd argocd/
              terraform init -backend=false
              terraform validate
@@ -148,9 +173,14 @@ jobs:
   ## ArgoCD ##
   plan-apply-argocd:
     docker:
-      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+      - image: circleci/node:14.18.1
     steps:
       - checkout
+      - aws-cli/install
+      - terraform/install:
+          arch: amd64
+          os: linux
+          terraform_version: 1.3.7
       - attach_workspace:
           at: ./
       - *show-current-branch
@@ -166,9 +196,14 @@ jobs:
             - artifacts
   apply-argocd:
     docker:
-      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+      - image: circleci/node:14.18.1
     steps:
       - checkout
+      - aws-cli/install
+      - terraform/install:
+          arch: amd64
+          os: linux
+          terraform_version: 1.3.7
       - aws-cli/install
       - attach_workspace:
           at: ./
@@ -185,8 +220,15 @@ jobs:
 
   plan-destroy-argocd:
     docker:
-      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+      - image: circleci/node:14.18.1
     steps:
+      - checkout
+      - aws-cli/install
+      - terraform/install:
+          arch: amd64
+          os: linux
+          terraform_version: 1.3.7
+      - aws-cli/install
       - attach_workspace:
           at: ./
       - run:
@@ -201,8 +243,15 @@ jobs:
 
   destroy-argocd:
     docker:
-      - image: docker.mirror.hashicorp.services/hashicorp/terraform:light
+      - image: circleci/node:14.18.1
     steps:
+      - checkout
+      - aws-cli/install
+      - terraform/install:
+          arch: amd64
+          os: linux
+          terraform_version: 1.3.7
+      - aws-cli/install
       - attach_workspace:
           at: ./
       - run:
@@ -221,11 +270,15 @@ workflows:
       - setup:
           requires:
             - testconnection
+      - setup-aws-cli-path:
+          requires:
+            - testconnection
 
       - terraform-validate:
           context: calvine-cloudonmymind
           requires:
             - setup
+            - setup-aws-cli-path
           # filters:
           #   branches:
           #     only:
@@ -236,29 +289,29 @@ workflows:
           requires:
             - testconnection
             - terraform-validate
-          # filters:
-          #   branches:
-          #     only:
-          #       - main
+      #     # filters:
+      #     #   branches:
+      #     #     only:
+      #     #       - main
 
-      - hold-apply-eks:
-          type: approval
-          requires:
-            - plan-apply-eks
+      # - hold-apply-eks:
+      #     type: approval
+      #     requires:
+      #       - plan-apply-eks
 
-      - apply-eks:
-          context: calvine-cloudonmymind
-          requires:
-            - hold-apply-eks
-            - testconnection
-            - terraform-validate
+      # - apply-eks:
+      #     context: calvine-cloudonmymind
+      #     requires:
+      #       - hold-apply-eks
+      #       - testconnection
+      #       - terraform-validate
 
       - plan-apply-argocd:
           context: calvine-cloudonmymind
           requires:
             - testconnection
             - terraform-validate
-            - apply-eks
+            # - apply-eks
           # filters:
           #   branches:
           #     only:
@@ -280,7 +333,7 @@ workflows:
       - plan-destroy-eks:
           requires:
             - testconnection
-            - apply-eks
+            - plan-apply-eks
       - hold-destroy-eks:
           type: approval
           requires:
